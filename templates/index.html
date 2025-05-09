@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>S&P500 종목 선택기</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- PWA 연결 -->
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <meta name="theme-color" content="#ffffff">
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/static/service-worker.js')
+        .then(reg => console.log('✅ Service Worker registered'))
+        .catch(err => console.error('❌ Service Worker registration failed', err));
+    }
+  </script>
+
+  <style>
+    body { font-family: sans-serif; margin: 10px; }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      background: #f0f0f0;
+      cursor: pointer;
+      position: sticky;
+      top: 0;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    #searchInput {
+      width: 100%;
+      max-width: 300px;
+      margin-bottom: 10px;
+      padding: 5px;
+    }
+    button {
+      margin-right: 8px;
+      padding: 6px 12px;
+    }
+  </style>
+</head>
+<body>
+  <h2>S&P500 분봉 추적 종목 선택</h2>
+
+  <label for="searchInput">🔍 종목 검색:</label>
+  <input type="text" id="searchInput" placeholder="티커 또는 이름 입력..." onkeyup="renderTable()">
+
+  <p>
+    <button onclick="selectAll(true)">전체 선택</button>
+    <button onclick="selectAll(false)">전체 해제</button>
+    선택한 종목 수: <span id="selectedCount">0</span>
+  </p>
+
+  <form method="POST">
+    <input type="hidden" name="user" value="{{ user }}">
+    <div style="height:600px; overflow:auto; border:1px solid #ccc;">
+      <table>
+        <thead>
+          <tr>
+            <th onclick="sortByChecked()">선택 <span id="sortCheckedIcon"></span></th>
+            <th onclick="sortTable('symbol')">티커 <span id="sortSymbolIcon"></span></th>
+            <th onclick="sortTable('name')">이름 <span id="sortNameIcon"></span></th>
+          </tr>
+        </thead>
+        <tbody id="tickerTableBody">
+          <!-- JavaScript로 채워짐 -->
+        </tbody>
+      </table>
+    </div>
+    <br>
+    <button type="submit" onclick="submitForm()">저장하기</button>
+  </form>
+
+  <script>
+    const allTickers = {{ all_tickers|tojson }};
+    const selectedTickers = new Set({{ selected|tojson }});
+    let sortKey = 'symbol';
+    let sortAsc = true;
+
+    function updateSortIcons() {
+      document.getElementById("sortCheckedIcon").textContent = sortKey === 'checked' ? (sortAsc ? '▲' : '▼') : '';
+      document.getElementById("sortSymbolIcon").textContent = sortKey === 'symbol' ? (sortAsc ? '▲' : '▼') : '';
+      document.getElementById("sortNameIcon").textContent = sortKey === 'name' ? (sortAsc ? '▲' : '▼') : '';
+    }
+
+    function renderTable() {
+      const input = document.getElementById("searchInput").value.toLowerCase();
+      let filtered = allTickers.filter(([symbol, name]) =>
+        symbol.toLowerCase().includes(input) || name.toLowerCase().includes(input)
+      );
+
+      if (sortKey === 'checked') {
+        filtered.sort((a, b) => {
+          const aSel = selectedTickers.has(a[0]) ? 1 : 0;
+          const bSel = selectedTickers.has(b[0]) ? 1 : 0;
+          return sortAsc ? bSel - aSel : aSel - bSel;
+        });
+      } else {
+        const i = sortKey === 'symbol' ? 0 : 1;
+        filtered.sort((a, b) => {
+          const [valA, valB] = [a[i].toLowerCase(), b[i].toLowerCase()];
+          return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        });
+      }
+
+      updateSortIcons();
+
+      const tbody = document.getElementById("tickerTableBody");
+      tbody.innerHTML = "";
+
+      filtered.forEach(([symbol, name]) => {
+        const row = document.createElement("tr");
+
+        const tdCheck = document.createElement("td");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.name = "tickers";
+        cb.value = symbol;
+        cb.checked = selectedTickers.has(symbol);
+        cb.onchange = () => {
+          cb.checked ? selectedTickers.add(symbol) : selectedTickers.delete(symbol);
+          updateCount();
+          if (sortKey === 'checked') renderTable();
+        };
+        tdCheck.appendChild(cb);
+
+        const tdSymbol = document.createElement("td");
+        tdSymbol.textContent = symbol;
+
+        const tdName = document.createElement("td");
+        tdName.textContent = name;
+
+        row.appendChild(tdCheck);
+        row.appendChild(tdSymbol);
+        row.appendChild(tdName);
+        tbody.appendChild(row);
+      });
+
+      updateCount();
+    }
+
+    function updateCount() {
+      document.getElementById("selectedCount").textContent = selectedTickers.size;
+    }
+
+    function selectAll(state) {
+      allTickers.forEach(([symbol]) => {
+        if (state) selectedTickers.add(symbol);
+        else selectedTickers.delete(symbol);
+      });
+      renderTable();
+    }
+
+    function sortTable(key) {
+      sortKey = key;
+      sortAsc = sortKey === key ? !sortAsc : true;
+      renderTable();
+    }
+
+    function sortByChecked() {
+      sortKey = 'checked';
+      sortAsc = !sortAsc;
+      renderTable();
+    }
+
+    function submitForm() {
+      const form = document.querySelector("form");
+      form.querySelectorAll("input[type='checkbox']").forEach(cb => cb.remove());
+      selectedTickers.forEach(ticker => {
+        const hidden = document.createElement("input");
+        hidden.type = "hidden";
+        hidden.name = "tickers";
+        hidden.value = ticker;
+        form.appendChild(hidden);
+      });
+    }
+
+    window.onload = renderTable;
+  </script>
+</body>
+</html>
